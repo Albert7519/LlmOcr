@@ -6,7 +6,6 @@ import json  # Import json
 import pandas as pd  # Import pandas
 from openai import OpenAI
 from PIL import Image
-import os  # Import os
 import concurrent.futures  # Import for parallel processing
 
 # --- Configuration ---
@@ -53,10 +52,10 @@ Please analyze the following image and perform these tasks:
     *   Vehicle Number (Format: XX-XXXXXX, if applicable)
 
 3.  **Handle Missing Values**:
-    *   If the Invoice Date is not found, fill the corresponding CSV position with "Unknown".
-    *   If the Amount is not found, fill the corresponding CSV position with "0.00".
-    *   If the Invoice Number is not found, fill the corresponding CSV position with "Unknown".
-    *   If the Vehicle Number is not found, fill the corresponding CSV position with "Unknown".
+    *   If the Invoice Date is not found, fill the corresponding CSV position with "NULL".
+    *   If the Amount is not found, fill the corresponding CSV position with "NULL".
+    *   If the Invoice Number is not found, fill the corresponding CSV position with "NULL".
+    *   If the Vehicle Number is not found, fill the corresponding CSV position with "NULL".
 
 4.  **Output Format Example**:
     ```csv
@@ -194,7 +193,8 @@ st.set_page_config(
         "About": None,  # 隐藏“About”
     },
 )
-st.markdown("""
+st.markdown(
+    """
     <style>
         .reportview-container {
             margin-top: -2em;
@@ -204,20 +204,33 @@ st.markdown("""
         footer {visibility: hidden;}
         #stDecoration {display:none;}
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 # Keep UI elements in Chinese as requested
 st.title("🧾 发票识别 (支持批量处理)")
 st.markdown("上传一张或多张发票图片，提取关键信息。")
 st.warning("注意: API 密钥目前硬编码在脚本中，请勿在生产环境中使用。")
 
 # Add format selection
-download_format = st.radio("选择下载格式:", ("CSV", "Excel", "JSON"), horizontal=True)
+download_format = st.radio(
+    "选择下载格式:",
+    (
+        "CSV（注意用CSV导出的结果不可以直接复制到Excel中，若是要复制请选择Excel）",
+        "Excel",
+        "JSON",
+    ),
+    horizontal=True,
+)
 
 uploaded_files = st.file_uploader(  # Changed variable name
     "上传发票图片 (JPG, PNG)",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,  # Allow multiple files
 )
+
+# Define chinese_header in the main scope
+chinese_header = ["文件名", "发票日期", "金额", "发票号码", "车号"]
 
 if uploaded_files:  # Check if list is not empty
     st.subheader(f"已上传 {len(uploaded_files)} 张图片:")
@@ -273,71 +286,111 @@ if uploaded_files:  # Check if list is not empty
             # Combine results into a single list for dataframe display
             all_results_list = []
             for filename, data_dict in results.items():
-                # --- Use English Key for Filename ---
+                # Add filename to the dictionary
+                # Ensure the key matches the one in chinese_header
                 data_dict_with_filename = {
                     "文件名": filename,
                     **data_dict,
-                }  # Add filename with English key
+                }
                 all_results_list.append(data_dict_with_filename)
 
-            # Display as a single table (column headers will be English)
-            st.dataframe(all_results_list, use_container_width=True)
+            # Display as a single table
+            # Create DataFrame first to ensure consistent column order based on chinese_header
+            display_df = pd.DataFrame(all_results_list)
+            # Reorder columns for display, handling potential missing columns
+            display_cols = [col for col in chinese_header if col in display_df.columns]
+            st.dataframe(display_df[display_cols], use_container_width=True)
 
             # --- Download Button Logic ---
             if all_results_list:
-                file_name = f"invoice_ocr_results.{download_format.lower()}"
-                mime_type = "text/plain"
-                download_data = ""
+                # Ensure download_format is not None before proceeding
+                if download_format:
+                    # Determine file extension based on format selection
+                    if download_format == "Excel":
+                        excel_buffer = io.BytesIO()
+                        df = pd.DataFrame(all_results_list)
+                        # Reorder columns using the globally defined chinese_header
+                        cols = [
+                            col for col in chinese_header if col in df.columns
+                        ]  # Ensure columns exist
+                        df = df[cols]  # Use the filtered and ordered columns
+                        # Use openpyxl engine for .xlsx format. Ensure openpyxl is installed: pip install openpyxl
+                        try:
+                            # Change engine to 'openpyxl' and file extension to '.xlsx'
+                            df.to_excel(excel_buffer, index=False, engine="openpyxl")
+                            download_data = excel_buffer.getvalue()
+                            # Update MIME type for .xlsx
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            # Update file name extension to .xlsx
+                            file_name = "invoice_ocr_results.xlsx"
+                        except ImportError:
+                            # Update error message for openpyxl
+                            st.error(
+                                "需要安装 'openpyxl' 库才能导出为 .xlsx 格式。请运行: pip install openpyxl"
+                            )
+                            # Prevent download button rendering if openpyxl is missing
+                            download_data = None
+                            mime_type = None
+                            file_name = None
+                        except (
+                            Exception
+                        ) as e:  # Catch other potential errors during excel writing
+                            st.error(f"导出 Excel 文件时出错: {e}")
+                            download_data = None
+                            mime_type = None
+                            file_name = None
 
-                # --- Use English Headers for Download ---
-                english_header = ["Filename"] + [
-                    "Invoice Date",
-                    "Amount",
-                    "Invoice Number",
-                    "Vehicle Number",
-                ]
+                    elif download_format.startswith(
+                        "CSV"
+                    ):  # Check startswith for the long description
+                        # file_extension = "csv" # Not needed here
+                        csv_buffer = io.StringIO()
+                        # Use the globally defined chinese_header for DictWriter
+                        writer = csv.DictWriter(csv_buffer, fieldnames=chinese_header)
+                        writer.writeheader()
+                        processed_rows = []
+                        for row_dict in all_results_list:
+                            # Map display keys to expected header keys, handle missing
+                            processed_row = {
+                                key: row_dict.get(key, "Unknown")
+                                for key in chinese_header  # Use global header
+                            }
+                            processed_rows.append(processed_row)
+                        writer.writerows(processed_rows)
+                        download_data = csv_buffer.getvalue()
+                        mime_type = "text/csv"
+                        file_name = (
+                            "invoice_ocr_results.csv"  # Explicitly set csv extension
+                        )
 
-                if download_format == "CSV":
-                    csv_buffer = io.StringIO()
-                    writer = csv.DictWriter(csv_buffer, fieldnames=english_header)
-                    writer.writeheader()
-                    # Ensure all dicts in the list have the same keys as the header
-                    # Fill missing keys with 'Unknown' before writing
-                    processed_rows = []
-                    for row_dict in all_results_list:
-                        processed_row = {
-                            key: row_dict.get(key, "Unknown") for key in english_header
-                        }
-                        processed_rows.append(processed_row)
-                    writer.writerows(processed_rows)
-                    download_data = csv_buffer.getvalue()
-                    mime_type = "text/csv"
+                    elif download_format == "JSON":
+                        # JSON keys will be Chinese based on all_results_list structure
+                        download_data = json.dumps(
+                            all_results_list, indent=2, ensure_ascii=False
+                        )
+                        mime_type = "application/json"
+                        file_name = (
+                            "invoice_ocr_results.json"  # Explicitly set json extension
+                        )
 
-                elif download_format == "Excel":
-                    excel_buffer = io.BytesIO()
-                    df = pd.DataFrame(all_results_list)
-                    # Reorder columns using English names
-                    cols = [
-                        col for col in english_header if col in df.columns
-                    ]  # Ensure columns exist
-                    df = df[cols]
-                    df.to_excel(excel_buffer, index=False, engine="openpyxl")
-                    download_data = excel_buffer.getvalue()
-                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-                elif download_format == "JSON":
-                    # JSON keys will naturally be English from the dictionary
-                    download_data = json.dumps(
-                        all_results_list, indent=2, ensure_ascii=False
-                    )  # ensure_ascii=False is good practice
-                    mime_type = "application/json"
-
-                st.download_button(
-                    label=f"📥 下载结果 ({download_format})",  # Keep button label Chinese
-                    data=download_data,
-                    file_name=file_name,
-                    mime=mime_type,
-                )
+                    # Only show download button if data was generated successfully
+                    if download_data and mime_type and file_name:
+                        # Simplify label text, handle potential missing '（'
+                        label_base = (
+                            download_format.split("（")[0]
+                            if "（" in download_format
+                            else download_format
+                        )
+                        st.download_button(
+                            label=f"📥 下载结果 ({label_base})",
+                            data=download_data,
+                            file_name=file_name,
+                            mime=mime_type,
+                        )
+                else:
+                    st.warning(
+                        "无法确定下载格式。"
+                    )  # Handle case where download_format might be None
 
         if errors:
             st.subheader("❌ 处理错误")  # Keep UI Chinese
