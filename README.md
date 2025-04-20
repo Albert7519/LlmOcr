@@ -118,7 +118,7 @@
 
 1.  **克隆仓库 (可选)**:
     ```bash
-    git clone <仓库地址> # 如果项目在 Git 仓库中
+    git clone https://github.com/Albert7519/LlmOcr
     cd LlmOcr
     ```
     或者直接将项目文件下载到本地文件夹。
