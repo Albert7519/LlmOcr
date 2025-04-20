@@ -20,7 +20,7 @@ if not QWEN_API_KEY:
 
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 QWEN_MODEL = "qwen-vl-max-latest"  # Or "qwen-vl-plus"
-MAX_WORKERS = 4  # Number of parallel API calls
+MAX_WORKERS = 100  # Number of parallel API calls
 
 
 # --- Helper Functions ---
