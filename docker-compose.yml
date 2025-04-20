@@ -1,0 +1,10 @@
+version: '3'
+services:
+  LlmOcr:
+    build: .
+    container_name: LlmOcr
+    ports:
+      - "8502:8502"  # 映射容器的8502端口到宿主机的8502端口
+    environment:
+      - QWEN_API_KEY=${QWEN_API_KEY}  # 从宿主机环境变量注入
+    restart: always

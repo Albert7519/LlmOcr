@@ -7,12 +7,17 @@ import pandas as pd  # Import pandas
 from openai import OpenAI
 from PIL import Image
 import concurrent.futures  # Import for parallel processing
+import os  # Import os module
 
 # --- Configuration ---
 # WARNING: Hardcoding API keys is insecure. Consider using Streamlit secrets or environment variables.
-QWEN_API_KEY = (
-    "sk-fb39b18cdd054cd19f38295a47520d6a"  # Replace with your actual key if different
-)
+
+# Get API Key from environment variable
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+if not QWEN_API_KEY:
+    st.error("错误：QWEN_API_KEY 环境变量未设置。请在运行 Docker 容器前设置该变量。")
+    st.stop()  # Stop execution if key is missing
+
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 QWEN_MODEL = "qwen-vl-max-latest"  # Or "qwen-vl-plus"
 MAX_WORKERS = 4  # Number of parallel API calls
@@ -210,7 +215,7 @@ st.markdown(
 # Keep UI elements in Chinese as requested
 st.title("🧾 发票识别 (支持批量处理)")
 st.markdown("上传一张或多张发票图片，提取关键信息。")
-st.warning("注意: API 密钥目前硬编码在脚本中，请勿在生产环境中使用。")
+st.warning("注意: 请勿上传与公司机密有关文件。")
 
 # Add format selection
 download_format = st.radio(
