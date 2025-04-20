@@ -1,2 +1,2 @@
-[browser]
-toolbarMode = "minimal"
+[ui]
+hideTopBar = true

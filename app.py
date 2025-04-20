@@ -183,7 +183,28 @@ def parse_csv_output(model_output):
 
 
 # --- Streamlit App UI ---
-st.set_page_config(page_title="Invoice OCR", layout="wide")
+st.set_page_config(
+    page_title="Invoice OCR",
+    page_icon="🧾",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        "Get Help": None,  # 隐藏“Get Help”
+        "Report a bug": None,  # 隐藏“Report a bug”
+        "About": None,  # 隐藏“About”
+    },
+)
+st.markdown("""
+    <style>
+        .reportview-container {
+            margin-top: -2em;
+        }
+        #MainMenu {visibility: hidden;}
+        .stDeployButton {display:none;}
+        footer {visibility: hidden;}
+        #stDecoration {display:none;}
+    </style>
+""", unsafe_allow_html=True)
 # Keep UI elements in Chinese as requested
 st.title("🧾 发票识别 (支持批量处理)")
 st.markdown("上传一张或多张发票图片，提取关键信息。")
@@ -200,9 +221,9 @@ uploaded_files = st.file_uploader(  # Changed variable name
 
 if uploaded_files:  # Check if list is not empty
     st.subheader(f"已上传 {len(uploaded_files)} 张图片:")
-    cols = st.columns(min(len(uploaded_files), 4))  # Display previews in columns
+    cols = st.columns(min(len(uploaded_files), 10))  # Display up to 10 previews per row
     for idx, uploaded_file in enumerate(uploaded_files):
-        with cols[idx % 4]:
+        with cols[idx % 10]:  # Use modulo 10 to cycle through the 10 columns
             try:
                 image = Image.open(uploaded_file)
                 st.image(image, caption=uploaded_file.name, use_column_width=True)
