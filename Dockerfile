@@ -13,11 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制源代码（编译成.pyc文件）
+# 复制源代码
 COPY . .
-RUN python -m compileall . && \
-    find . -name "*.py" -type f -exec rm -f {} \; && \
-    mv __pycache__/*.pyc . && rm -rf __pycache__
 
 # 设置环境变量（API密钥通过运行时注入）
 ENV QWEN_API_KEY=""
@@ -26,4 +23,4 @@ ENV QWEN_API_KEY=""
 EXPOSE 8502
 
 # 启动命令
-CMD ["streamlit", "run", "--server.port=8502", "app.pyc"]
+CMD ["streamlit", "run", "--server.port=8502", "app.py"]
