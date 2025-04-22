@@ -83,23 +83,29 @@ Process the invoice information in the image according to these rules. Output sh
     *   金额
     *   发票号码
     *   车号
+    *   上车时间
+    *   下车时间
 
 2.  **规范化输出**：将提取的信息整理成CSV格式，字段顺序和格式要求如下：
     *   发票日期 (格式: YYYY-MM-DD)
     *   金额 (单位: 元，保留两位小数)
     *   发票号码
     *   车号 (格式: XX-XXXXXX)
+    *   上车时间 (格式: HH:MM)
+    *   下车时间 (格式: HH:MM)
 
 3.  **处理缺失值**：
     *   如果图片中找不到发票日期，请在CSV对应位置填写 "NULL"。
     *   如果图片中找不到金额，请在CSV对应位置填写 "NULL"。
     *   如果图片中找不到发票号码，请在CSV对应位置填写 "NULL"。
     *   如果图片中找不到车号，请在CSV对应位置填写 "NULL"。
+    *   如果图片中找不到上车时间，请在CSV对应位置填写 "NULL"。
+    *   如果图片中找不到下车时间，请在CSV对应位置填写 "NULL"。
 
 4.  **输出格式示例**：
     ```csv
-    发票日期,金额,发票号码,车号
-    YYYY-MM-DD,XX.XX,XXXXXXXX,XX-XXXXXX
+    发票日期,金额,发票号码,车号,上车时间,下车时间
+    YYYY-MM-DD,XX.XX,XXXXXXXX,XX-XXXXXX,HH:MM,HH:MM
     ```
     请只输出CSV内容，不要包含表头。
 
@@ -131,7 +137,7 @@ Process the invoice information in the image according to these rules. Output sh
                         },
                         {
                             "type": "text",
-                            "text": chinese_prompt,  # Use the English prompt
+                            "text": chinese_prompt,  # Use the Chinese prompt
                         },
                     ],
                 },
@@ -168,7 +174,7 @@ def parse_csv_output(model_output):
     try:
         data_row = next(reader)
         # Expected header based on prompt
-        header = ["发票日期", "金额", "发票号码", "车号"]
+        header = ["发票日期", "金额", "发票号码", "车号", "上车时间", "下车时间"]
         # Create a list of dictionaries for better display in dataframe
         # Ensure data_row has the same length as header, pad with 'Unknown' if not
         if len(data_row) < len(header):
@@ -235,7 +241,15 @@ uploaded_files = st.file_uploader(  # Changed variable name
 )
 
 # Define chinese_header in the main scope
-chinese_header = ["文件名", "发票日期", "金额", "发票号码", "车号"]
+chinese_header = [
+    "文件名",
+    "发票日期",
+    "金额",
+    "发票号码",
+    "车号",
+    "上车时间",
+    "下车时间",
+]
 
 if uploaded_files:  # Check if list is not empty
     st.subheader(f"已上传 {len(uploaded_files)} 张图片:")
