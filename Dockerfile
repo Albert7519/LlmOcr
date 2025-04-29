@@ -34,9 +34,6 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 # 复制源代码
 COPY . .
 
-# 设置环境变量（API密钥通过运行时注入）
-ENV QWEN_API_KEY=""
-
 # 暴露端口
 EXPOSE 8502
 

@@ -8,12 +8,52 @@ from PIL import Image
 import concurrent.futures  # Import for parallel processing
 import os  # Import os module
 import requests  # 导入requests库用于API调用
+import socket  # 导入socket库用于检测网络连接
 
 # --- Configuration ---
 # 使用Ollama本地部署的Qwen2.5-VL-7B-Instruct模型
-OLLAMA_API_URL = "http://localhost:11434/api/generate"  # Ollama 默认API地址
 OLLAMA_MODEL = "ZimaBlueAI/Qwen2.5-VL-7B-Instruct"  # Ollama模型名称
 MAX_WORKERS = 10  # 减少并行调用数量，避免本地模型过载
+
+# 定义可能的Ollama API URLs
+DOCKER_API_URL = (
+    "http://host.docker.internal:11434/api/generate"  # Docker容器内访问宿主机
+)
+LOCAL_API_URL = "http://localhost:11434/api/generate"  # 直接在本地运行时使用
+
+
+# 自动检测使用哪个API URL
+def get_ollama_api_url():
+    """
+    自动检测使用哪个Ollama API URL:
+    1. 首先尝试使用localhost
+    2. 如果localhost连接失败，尝试使用host.docker.internal (Docker环境)
+    3. 如果两者都失败，返回localhost作为默认值
+    """
+    # 首先尝试localhost
+    try:
+        response = requests.get("http://localhost:11434/api/version", timeout=1)
+        if response.status_code == 200:
+            return LOCAL_API_URL
+    except requests.exceptions.RequestException:
+        pass
+
+    # 尝试Docker网络别名
+    try:
+        response = requests.get(
+            "http://host.docker.internal:11434/api/version", timeout=1
+        )
+        if response.status_code == 200:
+            return DOCKER_API_URL
+    except requests.exceptions.RequestException:
+        pass
+
+    # 默认返回localhost URL
+    return LOCAL_API_URL
+
+
+# 动态确定要使用的API URL
+OLLAMA_API_URL = get_ollama_api_url()
 
 
 # --- Helper Functions ---
@@ -24,6 +64,8 @@ def encode_image_bytes(image_bytes):
 
 def get_qwen_completion(image_bytes, filename=""):
     """使用Ollama本地API调用Qwen2.5-VL-7B-Instruct模型处理图像"""
+    global OLLAMA_API_URL  # 将全局变量声明移到函数开始处
+    
     try:
         base64_image = encode_image_bytes(image_bytes)
 
@@ -68,12 +110,18 @@ def get_qwen_completion(image_bytes, filename=""):
 
 请根据以上规则处理图片中的发票信息。"""
 
+        # 如果第一次请求失败，尝试另一个URL
+        api_url = OLLAMA_API_URL
+
         # 构建Ollama API请求
         data = {
             "model": OLLAMA_MODEL,
             "prompt": chinese_prompt,
             "images": [base64_image],  # 移除data:image前缀
             "stream": False,
+            "options": {
+                "vl_high_resolution_images": True  # 启用高分辨率图像处理
+            }
         }
 
         headers = {
@@ -81,28 +129,38 @@ def get_qwen_completion(image_bytes, filename=""):
         }
 
         try:
-            response = requests.post(OLLAMA_API_URL, headers=headers, json=data)
+            # 第一次尝试请求
+            response = requests.post(api_url, headers=headers, json=data, timeout=60)
             response.raise_for_status()  # 抛出HTTP错误
-
-            # 解析返回结果
-            result = response.json()
-            model_output = result.get("response", "")
-
-            if not model_output:
-                raise ValueError("模型未返回有效的输出")
-
-            # 解析CSV输出
-            parsed_data, _ = parse_csv_output(model_output)
-            return parsed_data
-
         except requests.exceptions.RequestException as e:
-            # 处理API请求错误
-            error_msg = f"Ollama API请求错误: {str(e)}"
-            if "Connection refused" in str(e):
-                error_msg += (
-                    "。请确保Ollama服务已启动，并且可以通过'localhost:11434'访问。"
+            # 如果失败，尝试另一个URL
+            alternative_url = (
+                LOCAL_API_URL if api_url == DOCKER_API_URL else DOCKER_API_URL
+            )
+            try:
+                response = requests.post(
+                    alternative_url, headers=headers, json=data, timeout=60
                 )
-            raise Exception(error_msg)
+                response.raise_for_status()
+                # 如果成功，更新全局URL
+                OLLAMA_API_URL = alternative_url
+            except requests.exceptions.RequestException as e2:
+                # 两种URL都失败
+                error_msg = f"Ollama API请求错误: {str(e2)}"
+                if "Connection refused" in str(e2):
+                    error_msg += "。请确保Ollama服务已启动，并且可以通过localhost:11434或host.docker.internal:11434访问。"
+                raise Exception(error_msg)
+
+        # 解析返回结果
+        result = response.json()
+        model_output = result.get("response", "")
+
+        if not model_output:
+            raise ValueError("模型未返回有效的输出")
+
+        # 解析CSV输出
+        parsed_data, _ = parse_csv_output(model_output)
+        return parsed_data
 
     except Exception as e:
         # 将异常传递给批处理器
