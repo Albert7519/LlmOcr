@@ -4,23 +4,16 @@ import io
 import csv
 import json  # Import json
 import pandas as pd  # Import pandas
-from openai import OpenAI
 from PIL import Image
 import concurrent.futures  # Import for parallel processing
 import os  # Import os module
+import requests  # 导入requests库用于API调用
 
 # --- Configuration ---
-# WARNING: Hardcoding API keys is insecure. Consider using Streamlit secrets or environment variables.
-
-# Get API Key from environment variable
-QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-if not QWEN_API_KEY:
-    st.error("错误：QWEN_API_KEY 环境变量未设置。请在运行 Docker 容器前设置该变量。")
-    st.stop()  # Stop execution if key is missing
-
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-QWEN_MODEL = "qwen-vl-max-latest"  # Or "qwen-vl-plus"
-MAX_WORKERS = 100  # Number of parallel API calls
+# 使用Ollama本地部署的Qwen2.5-VL-7B-Instruct模型
+OLLAMA_API_URL = "http://localhost:11434/api/generate"  # Ollama 默认API地址
+OLLAMA_MODEL = "ZimaBlueAI/Qwen2.5-VL-7B-Instruct"  # Ollama模型名称
+MAX_WORKERS = 10  # 减少并行调用数量，避免本地模型过载
 
 
 # --- Helper Functions ---
@@ -29,51 +22,12 @@ def encode_image_bytes(image_bytes):
     return base64.b64encode(image_bytes).decode("utf-8")
 
 
-def get_qwen_completion(image_bytes, filename=""):  # Add filename for error reporting
-    """Calls the Qwen VL API and returns the completion result."""
+def get_qwen_completion(image_bytes, filename=""):
+    """使用Ollama本地API调用Qwen2.5-VL-7B-Instruct模型处理图像"""
     try:
-        client = OpenAI(
-            api_key=QWEN_API_KEY,
-            base_url=QWEN_BASE_URL,
-        )
-
         base64_image = encode_image_bytes(image_bytes)
 
-        # --- Modified Prompt for English Output ---
-        english_prompt = """You are a professional image data processing assistant responsible for extracting information from the provided invoice image and converting it into standardized CSV format using English.
-
-Please analyze the following image and perform these tasks:
-
-1.  **Identify Key Information**: Find the following invoice details in the image:
-    *   Invoice Date
-    *   Amount
-    *   Invoice Number
-    *   Vehicle Number
-
-2.  **Standardize Output**: Organize the extracted information into CSV format with the following field order and format requirements:
-    *   Invoice Date (Format: YYYY-MM-DD)
-    *   Amount (Unit: Yuan, two decimal places)
-    *   Invoice Number
-    *   Vehicle Number (Format: XX-XXXXXX, if applicable)
-
-3.  **Handle Missing Values**:
-    *   If the Invoice Date is not found, fill the corresponding CSV position with "NULL".
-    *   If the Amount is not found, fill the corresponding CSV position with "NULL".
-    *   If the Invoice Number is not found, fill the corresponding CSV position with "NULL".
-    *   If the Vehicle Number is not found, fill the corresponding CSV position with "NULL".
-
-4.  **Output Format Example**:
-    ```csv
-    Invoice Date,Amount,Invoice Number,Vehicle Number
-    YYYY-MM-DD,XX.XX,XXXXXXXX,XX-XXXXXX
-    ```
-    Please output ONLY the CSV data row, without the header row.
-
-5. **Important Note**:
-    If both pre-tax and post-tax amounts are present, use the post-tax amount.
-
-Process the invoice information in the image according to these rules. Output should be in English."""
-
+        # 构建提示词
         chinese_prompt = """你是一个专业的图像数据处理助手，负责从提供的发票图片中提取信息，并将其转换为标准化的CSV表格格式。
 
 请分析以下图片，并执行以下任务：
@@ -114,47 +68,45 @@ Process the invoice information in the image according to these rules. Output sh
 
 请根据以上规则处理图片中的发票信息。"""
 
-        completion = client.chat.completions.create(
-            model=QWEN_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "You are a helpful assistant processing invoices.",
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": chinese_prompt,  # Use the Chinese prompt
-                        },
-                    ],
-                },
-            ],
-            # stream=True # Streaming might require different handling
-        )
-        # Extract the content directly
-        if completion and completion.choices:
-            model_output = completion.choices[0].message.content
-            parsed_data, _ = parse_csv_output(model_output)  # Parse here
-            return parsed_data  # Return parsed data directly
-        else:
-            raise ValueError("API did not return expected choices.")
+        # 构建Ollama API请求
+        data = {
+            "model": OLLAMA_MODEL,
+            "prompt": chinese_prompt,
+            "images": [base64_image],  # 移除data:image前缀
+            "stream": False,
+        }
+
+        headers = {
+            "Content-Type": "application/json"  # 添加请求头
+        }
+
+        try:
+            response = requests.post(OLLAMA_API_URL, headers=headers, json=data)
+            response.raise_for_status()  # 抛出HTTP错误
+
+            # 解析返回结果
+            result = response.json()
+            model_output = result.get("response", "")
+
+            if not model_output:
+                raise ValueError("模型未返回有效的输出")
+
+            # 解析CSV输出
+            parsed_data, _ = parse_csv_output(model_output)
+            return parsed_data
+
+        except requests.exceptions.RequestException as e:
+            # 处理API请求错误
+            error_msg = f"Ollama API请求错误: {str(e)}"
+            if "Connection refused" in str(e):
+                error_msg += (
+                    "。请确保Ollama服务已启动，并且可以通过'localhost:11434'访问。"
+                )
+            raise Exception(error_msg)
 
     except Exception as e:
-        # Raise exception to be caught by the batch processor
-        raise Exception(f"Error processing {filename}: {e}")
+        # 将异常传递给批处理器
+        raise Exception(f"处理图片 {filename} 时出错: {str(e)}")
 
 
 def parse_csv_output(model_output):
